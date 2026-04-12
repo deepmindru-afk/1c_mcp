@@ -84,7 +84,7 @@ class OneCClient:
 				raise httpx.HTTPStatusError(f"Invalid JSON response from 1C health check: {e}", request=response.request, response=response)
 
 		except httpx.HTTPError as e:
-			logger.error(f"Ошибка HTTP при проверке состояния 1С: {e}")
+			logger.error(f"Ошибка HTTP при проверке состояния 1С: {type(e).__name__}: {str(e) or repr(e)}")
 			raise
 	
 	async def call_rpc(self, method: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
