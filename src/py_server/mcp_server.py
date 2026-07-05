@@ -71,7 +71,8 @@ class MCPProxy:
 			base_url=self.config.onec_url,
 			username=username,
 			password=password,
-			service_root=self.config.onec_service_root
+			service_root=self.config.onec_service_root,
+			unlock_code=self.config.onec_unlock_code
 		)
 		
 		logger.debug(f"Подключение к 1С: {self.config.onec_url}")

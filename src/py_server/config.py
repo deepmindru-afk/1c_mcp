@@ -18,6 +18,7 @@ class Config(BaseSettings):
 	onec_username: Optional[str] = Field(default=None, description="Имя пользователя 1С")
 	onec_password: Optional[str] = Field(default=None, description="Пароль пользователя 1С")
 	onec_service_root: str = Field(default="mcp", description="Корневой URL HTTP-сервиса в 1С")
+	onec_unlock_code: Optional[str] = Field(default=None, description="Код разрешения (unlock code) для входа при блокировке начала сеансов; передаётся как query-параметр uc")
 	
 	# Настройки MCP
 	server_name: str = Field(default="1C Configuration Data Tools", description="Имя MCP-сервера")

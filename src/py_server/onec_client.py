@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class OneCClient:
 	"""Клиент для взаимодействия с HTTP-сервисом 1С."""
 	
-	def __init__(self, base_url: str, username: str, password: str, service_root: str = "mcp"):
+	def __init__(self, base_url: str, username: str, password: str, service_root: str = "mcp", unlock_code: Optional[str] = None):
 		"""Инициализация клиента.
 
 		Args:
@@ -23,10 +23,16 @@ class OneCClient:
 			username: Имя пользователя
 			password: Пароль
 			service_root: Корневой URL HTTP-сервиса (по умолчанию "mcp")
+			unlock_code: Код разрешения (unlock code) для входа при блокировке
+				начала сеансов. Передаётся в каждый запрос как query-параметр uc
+				(веб-эквивалент ключа запуска /UC).
 		"""
 		self.base_url = base_url.rstrip('/')
 		self.service_root = service_root.strip('/')
 		self.auth = httpx.BasicAuth(username, password)
+
+		# Код разрешения для обхода блокировки начала сеансов (?uc=<код>)
+		self.request_params = {"uc": unlock_code} if unlock_code else None
 
 		# Используем метод для создания клиента
 		self.client = self._create_client()
@@ -67,7 +73,7 @@ class OneCClient:
 			url = f"{self.service_base_url}/health"
 			logger.debug(f"Запрос состояния здоровья: {url}")
 
-			response = await self.client.get(url)
+			response = await self.client.get(url, params=self.request_params)
 			response.raise_for_status()
 
 			# Проверяем JSON ответ от 1C healthGET
@@ -113,7 +119,7 @@ class OneCClient:
 			
 			logger.debug(f"JSON-RPC запрос: {rpc_request}")
 			
-			response = await self.client.post(url, json=rpc_request)
+			response = await self.client.post(url, json=rpc_request, params=self.request_params)
 			response.raise_for_status()
 			
 			rpc_response = response.json()

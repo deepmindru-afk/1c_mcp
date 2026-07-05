@@ -540,9 +540,11 @@ class MCPHttpServer:
 			try:
 				async with httpx.AsyncClient(timeout=10.0) as client:
 					health_url = f"{self.config.onec_url}/hs/{self.config.onec_service_root}/health"
+					uc_params = {"uc": self.config.onec_unlock_code} if self.config.onec_unlock_code else None
 					response = await client.get(
 						health_url,
-						auth=httpx.BasicAuth(username, password)
+						auth=httpx.BasicAuth(username, password),
+						params=uc_params
 					)
 					
 					if response.status_code == 401:
@@ -647,9 +649,11 @@ class MCPHttpServer:
 				try:
 					async with httpx.AsyncClient(timeout=10.0) as client:
 						health_url = f"{self.config.onec_url}/hs/{self.config.onec_service_root}/health"
+						uc_params = {"uc": self.config.onec_unlock_code} if self.config.onec_unlock_code else None
 						response = await client.get(
 							health_url,
-							auth=httpx.BasicAuth(username, password or "")
+							auth=httpx.BasicAuth(username, password or ""),
+							params=uc_params
 						)
 
 						if response.status_code == 401:
