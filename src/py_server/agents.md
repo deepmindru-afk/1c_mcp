@@ -138,6 +138,7 @@ class Config(BaseSettings):
 	onec_username: str
 	onec_password: str
 	onec_service_root: str = "mcp"
+	onec_unlock_code: Optional[str] = None  # код разрешения при блокировке сеансов (?uc=)
 	
 	# MCP
 	server_name: str = "1C Configuration Data Tools"
@@ -641,6 +642,7 @@ class OAuth2Service:
 
 #### Опциональные (основные):
 - `MCP_ONEC_SERVICE_ROOT` - корень HTTP-сервиса (по умолчанию: `mcp`)
+- `MCP_ONEC_UNLOCK_CODE` - код разрешения при блокировке начала сеансов; передаётся во все запросы к 1С как `?uc=` (аналог ключа запуска `/UC`)
 - `MCP_HOST` - хост HTTP-сервера (по умолчанию: `127.0.0.1`)
 - `MCP_PORT` - порт HTTP-сервера (по умолчанию: `8000`)
 - `MCP_SERVER_NAME` - имя MCP-сервера (по умолчанию: `1C Configuration Data Tools`)

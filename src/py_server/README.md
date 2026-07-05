@@ -204,6 +204,7 @@ MCP_PUBLIC_URL=http://your-server:8000
 | `MCP_ONEC_USERNAME` | Имя пользователя | - | ✅ При `AUTH_MODE=none` |
 | `MCP_ONEC_PASSWORD` | Пароль | - | ✅ При `AUTH_MODE=none` |
 | `MCP_ONEC_SERVICE_ROOT` | Корень HTTP-сервиса | `mcp` | ❌ |
+| `MCP_ONEC_UNLOCK_CODE` | Код разрешения при блокировке начала сеансов, передаётся как `?uc=` (аналог ключа запуска `/UC`) | - | ❌ |
 
 ### HTTP-сервер
 

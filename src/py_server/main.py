@@ -53,6 +53,7 @@ def create_parser() -> argparse.ArgumentParser:
   MCP_ONEC_USERNAME      - Имя пользователя 1С (обязательно при auth_mode=none)
   MCP_ONEC_PASSWORD      - Пароль пользователя 1С (обязательно при auth_mode=none)
   MCP_ONEC_SERVICE_ROOT  - Корневой URL HTTP-сервиса (по умолчанию: mcp)
+  MCP_ONEC_UNLOCK_CODE   - Код разрешения при блокировке начала сеансов (опционально)
   MCP_HOST               - Хост HTTP-сервера (по умолчанию: 127.0.0.1)
   MCP_PORT               - Порт HTTP-сервера (по умолчанию: 8000)
   MCP_LOG_LEVEL          - Уровень логирования (по умолчанию: INFO)
