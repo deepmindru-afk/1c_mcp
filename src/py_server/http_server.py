@@ -332,24 +332,40 @@ class MCPHttpServer:
 		async def health():
 			"""Проверка здоровья сервера."""
 			try:
-				# Проверяем подключение к 1С через прокси
+				# Проверяем подключение к 1С
+				# Используем существующий клиент сессии, если есть, иначе создаём временный
 				if hasattr(self.mcp_proxy, 'onec_client') and self.mcp_proxy.onec_client:
 					await self.mcp_proxy.onec_client.check_health()
-					result = {"status": "healthy", "onec_connection": "ok"}
+				elif self.config.onec_username and self.config.onec_password:
+					# Нет активной сессии — проверяем 1С напрямую через временный клиент
+					from .onec_client import OneCClient
+					temp_client = OneCClient(
+						base_url=self.config.onec_url,
+						username=self.config.onec_username,
+						password=self.config.onec_password,
+						service_root=self.config.onec_service_root
+					)
+					try:
+						await temp_client.check_health()
+					finally:
+						await temp_client.close()
 				else:
-					result = {"status": "starting", "onec_connection": "not_initialized"}
-				
-				# Добавляем информацию об авторизации
-				result["auth"] = {"mode": self.config.auth_mode}
-				return result
+					# OAuth2 режим без активной сессии — можем проверить только сам прокси
+					return {"status": "healthy", "onec_connection": "not_checked_no_session", "auth": {"mode": self.config.auth_mode}}
+
+				return {"status": "healthy", "onec_connection": "ok", "auth": {"mode": self.config.auth_mode}}
 			except Exception as e:
-				logger.error(f"Ошибка проверки здоровья: {e}")
-				return {
-					"status": "unhealthy",
-					"onec_connection": "error",
-					"error_details": str(e),
-					"auth": {"mode": self.config.auth_mode}
-				}
+				error_detail = f"{type(e).__name__}: {str(e) or repr(e)}"
+				logger.error(f"Ошибка проверки здоровья: {error_detail}")
+				return JSONResponse(
+					status_code=503,
+					content={
+						"status": "unhealthy",
+						"onec_connection": "error",
+						"error_details": error_detail,
+						"auth": {"mode": self.config.auth_mode}
+					}
+				)
 		
 		# OAuth2 endpoints (если включено)
 		if self.config.auth_mode == "oauth2":
