@@ -101,6 +101,11 @@ def create_parser() -> argparse.ArgumentParser:
 		help="Корневой URL HTTP-сервиса в 1С"
 	)
 	parser.add_argument(
+		"--onec-unlock-code",
+		type=str,
+		help="Код разрешения при блокировке начала сеансов (передаётся как ?uc=)"
+	)
+	parser.add_argument(
 		"--log-level",
 		type=str,
 		choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -179,6 +184,8 @@ async def main():
 		os.environ["MCP_ONEC_PASSWORD"] = args.onec_password
 	if args.onec_service_root:
 		os.environ["MCP_ONEC_SERVICE_ROOT"] = args.onec_service_root
+	if args.onec_unlock_code:
+		os.environ["MCP_ONEC_UNLOCK_CODE"] = args.onec_unlock_code
 	if args.host:
 		os.environ["MCP_HOST"] = args.host
 	if args.port:
