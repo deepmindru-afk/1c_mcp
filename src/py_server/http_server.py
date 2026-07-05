@@ -343,7 +343,8 @@ class MCPHttpServer:
 						base_url=self.config.onec_url,
 						username=self.config.onec_username,
 						password=self.config.onec_password,
-						service_root=self.config.onec_service_root
+						service_root=self.config.onec_service_root,
+						unlock_code=self.config.onec_unlock_code
 					)
 					try:
 						await temp_client.check_health()
