@@ -655,6 +655,7 @@ class OAuth2Service:
 - `MCP_OAUTH2_CODE_TTL` - TTL authorization code в секундах (по умолчанию: `120`)
 - `MCP_OAUTH2_ACCESS_TTL` - TTL access token в секундах (по умолчанию: `3600`)
 - `MCP_OAUTH2_REFRESH_TTL` - TTL refresh token в секундах (по умолчанию: `1209600`)
+- `MCP_OAUTH2_ALLOWED_REDIRECT_URIS` - разрешённые redirect_uri через запятую (по умолчанию не задано — принимаются любые; `*` на конце элемента — совпадение по префиксу, для loopback-адресов порт игнорируется)
   - `MCP_ONEC_USERNAME`/`MCP_ONEC_PASSWORD` игнорируются при `MCP_AUTH_MODE=oauth2`
 
 ### Файл `.env`

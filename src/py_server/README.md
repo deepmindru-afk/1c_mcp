@@ -233,6 +233,7 @@ MCP_PUBLIC_URL=http://your-server:8000
 | `MCP_OAUTH2_CODE_TTL` | TTL authorization code (сек) | `120` | ❌ |
 | `MCP_OAUTH2_ACCESS_TTL` | TTL access token (сек) | `3600` | ❌ |
 | `MCP_OAUTH2_REFRESH_TTL` | TTL refresh token (сек) | `1209600` | ❌ |
+| `MCP_OAUTH2_ALLOWED_REDIRECT_URIS` | Разрешённые redirect_uri через запятую (`*` на конце — префикс; для localhost порт игнорируется) | (не задано — любые) | ❌ |
 
 ### CLI аргументы
 

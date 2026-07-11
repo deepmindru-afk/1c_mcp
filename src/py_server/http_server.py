@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Dict, Any, Optional
 from contextlib import asynccontextmanager
-from urllib.parse import urlencode, parse_qs
+from urllib.parse import urlencode, parse_qs, urlparse
 
 from fastapi import FastAPI, Request, Response, HTTPException, Form
 from fastapi.responses import StreamingResponse, HTMLResponse, RedirectResponse, JSONResponse
@@ -372,9 +372,50 @@ class MCPHttpServer:
 		if self.config.auth_mode == "oauth2":
 			self._register_oauth2_routes()
 	
+	def _is_redirect_uri_allowed(self, redirect_uri: str) -> bool:
+		"""Проверить redirect_uri по списку из MCP_OAUTH2_ALLOWED_REDIRECT_URIS.
+
+		Список не задан (по умолчанию) — принимается любой адрес.
+		Элемент списка с '*' на конце — совпадение по префиксу.
+		Для loopback-адресов (localhost, 127.0.0.1, ::1) порт игнорируется —
+		локальные клиенты слушают случайный порт (RFC 8252).
+		"""
+		allowed = self.config.oauth2_allowed_redirect_uris
+		if not allowed:
+			return True
+
+		try:
+			requested = urlparse(redirect_uri)
+		except ValueError:
+			return False
+
+		loopback_hosts = ("localhost", "127.0.0.1", "::1")
+
+		for pattern in (p.strip() for p in allowed.split(",")):
+			if not pattern:
+				continue
+			if pattern.endswith("*"):
+				if redirect_uri.startswith(pattern[:-1]):
+					return True
+			elif redirect_uri == pattern:
+				return True
+			else:
+				try:
+					allowed_uri = urlparse(pattern)
+				except ValueError:
+					continue
+				if (allowed_uri.hostname in loopback_hosts
+						and requested.hostname == allowed_uri.hostname
+						and requested.scheme == allowed_uri.scheme
+						and requested.path == allowed_uri.path
+						and requested.query == allowed_uri.query):
+					return True
+
+		return False
+
 	def _register_oauth2_routes(self):
 		"""Регистрация OAuth2 маршрутов."""
-		
+
 		@self.app.get("/.well-known/oauth-protected-resource")
 		async def well_known_prm(request: Request):
 			"""Protected Resource Metadata (RFC 9728)."""
@@ -424,21 +465,17 @@ class MCPHttpServer:
 			Всегда возвращает фиксированный client_id для публичного клиента.
 			Игнорирует параметры регистрации, т.к. у нас нет реальной БД клиентов.
 			"""
-			# Читаем тело запроса (но не используем, т.к. всё равно вернём фиксированные данные)
 			try:
 				body = await request.json()
 				logger.debug(f"Client registration request: {body}")
 			except:
 				body = {}
-			
-			# Определяем публичный URL для redirect_uris
-			if self.config.public_url:
-				base_url = self.config.public_url
-			else:
-				scheme = request.url.scheme
-				netloc = request.headers.get("host", f"{request.client.host}:{request.url.port}")
-				base_url = f"{scheme}://{netloc}"
-			
+
+			# Возвращаем клиенту ровно те redirect_uris, которые он прислал:
+			# клиенты (open-webui и др.) строят ссылку на /authorize из первого
+			# элемента ответа, поэтому добавлять сюда свои адреса нельзя
+			redirect_uris = [uri for uri in body.get("redirect_uris", []) if uri]
+
 			# Возвращаем фиксированные данные публичного клиента
 			client_data = {
 				"client_id": "mcp-public-client",
@@ -446,23 +483,13 @@ class MCPHttpServer:
 				"client_id_issued_at": 1640000000,  # Фиксированная дата
 				"grant_types": ["authorization_code", "refresh_token", "password"],
 				"response_types": ["code"],
-				"redirect_uris": [
-					f"{base_url}/callback",
-					"http://localhost/callback",
-					"http://127.0.0.1/callback"
-				],
+				"redirect_uris": redirect_uris,
 				"token_endpoint_auth_method": "none",  # Публичный клиент
 				"application_type": "web"
 			}
-			
-			# Если клиент передал свои redirect_uris, добавляем их
-			if "redirect_uris" in body:
-				for uri in body.get("redirect_uris", []):
-					if uri not in client_data["redirect_uris"]:
-						client_data["redirect_uris"].append(uri)
-			
-			logger.info(f"Client registration: вернули фиксированный client_id='mcp-public-client'")
-			
+
+			logger.info(f"Client registration: вернули client_id='mcp-public-client', redirect_uris={redirect_uris}")
+
 			return client_data
 		
 		@self.app.get("/authorize")
@@ -494,7 +521,14 @@ class MCPHttpServer:
 					content="<html><body><h1>Ошибка</h1><p>Поддерживается только code_challenge_method=S256</p></body></html>",
 					status_code=400
 				)
-			
+
+			if not self._is_redirect_uri_allowed(redirect_uri):
+				logger.warning(f"Отклонён redirect_uri, отсутствующий в MCP_OAUTH2_ALLOWED_REDIRECT_URIS: {redirect_uri}")
+				return HTMLResponse(
+					content="<html><body><h1>Ошибка</h1><p>redirect_uri не входит в список разрешённых</p></body></html>",
+					status_code=400
+				)
+
 			# Сохраняем параметры в query для формы
 			query_params = urlencode({
 				"redirect_uri": redirect_uri,
@@ -552,7 +586,14 @@ class MCPHttpServer:
 					content="<html><body><h1>Ошибка</h1><p>Отсутствуют обязательные параметры</p></body></html>",
 					status_code=400
 				)
-			
+
+			if not self._is_redirect_uri_allowed(redirect_uri):
+				logger.warning(f"Отклонён redirect_uri, отсутствующий в MCP_OAUTH2_ALLOWED_REDIRECT_URIS: {redirect_uri}")
+				return HTMLResponse(
+					content="<html><body><h1>Ошибка</h1><p>redirect_uri не входит в список разрешённых</p></body></html>",
+					status_code=400
+				)
+
 			# Валидация креденшилов через вызов к 1С health endpoint
 			try:
 				async with httpx.AsyncClient(timeout=10.0) as client:
@@ -774,7 +815,11 @@ class MCPHttpServer:
 			host=self.config.host,
 			port=self.config.port,
 			log_level=self.config.log_level.lower(),
-			access_log=True
+			access_log=True,
+			# Доверяем X-Forwarded-Proto/For от любого адреса: по IP клиента и схеме
+			# здесь не принимается никаких решений безопасности, а за reverse-прокси
+			# это позволяет строить корректные https-ссылки без MCP_PUBLIC_URL
+			forwarded_allow_ips="*"
 		)
 		
 		server = uvicorn.Server(config)
