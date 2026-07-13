@@ -66,6 +66,7 @@
 			<Subsystem>mcp_MCPСервер</Subsystem>
 			<Role>mcp_ОсновнаяРоль</Role>
 			<CommonModule>mcp_ОбщегоНазначения</CommonModule>
+			<CommonModule>mcp_Диспетчер</CommonModule>
 			<CommonModule>mcp_КонтейнерыПовтИсп</CommonModule>
 			<CommonModule>mcp_Метаданные</CommonModule>
 			<CommonModule>mcp_Выполнение</CommonModule>
