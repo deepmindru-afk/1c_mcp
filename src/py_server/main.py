@@ -220,7 +220,13 @@ async def main():
 		logger.error("OAuth2 не поддерживается в режиме stdio. Используйте auth_mode=none.")
 		sys.exit(1)
 
-	if config.auth_mode == "none":
+	if config.transport == "file":
+		# Файловый транспорт (обмен через папку) не использует аутентификацию 1С —
+		# логин/пароль/URL не нужны, но обязательна папка обмена.
+		if not config.file_exchange_dir:
+			logger.error("Для transport=file обязателен MCP_FILE_EXCHANGE_DIR (папка обмена).")
+			sys.exit(1)
+	elif config.auth_mode == "none":
 		if config.onec_username is None or config.onec_password is None:
 			logger.error("Для auth_mode=none обязательны MCP_ONEC_USERNAME и MCP_ONEC_PASSWORD.")
 			sys.exit(1)

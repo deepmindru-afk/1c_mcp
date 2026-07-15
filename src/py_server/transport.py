@@ -5,7 +5,13 @@
 Контракт зеркалит 1С-сторону (mcp_Диспетчер.ОбработатьСтроку: строка → строка).
 """
 
+import asyncio
+import json
 import logging
+import os
+import time
+import uuid
+from pathlib import Path
 from typing import Optional, Protocol, runtime_checkable
 import httpx
 
@@ -133,3 +139,116 @@ class HttpTransport:
     async def close(self) -> None:
         """Закрыть HTTP-клиент."""
         await self.client.aclose()
+
+
+class FileTransport:
+    """Файловый транспорт: обмен с 1С-агентом через папку (для тестов без веб-сервера).
+
+    Протокол (зеркалит форму mcp_УправлениеСервером):
+    - запрос кладётся в `<exchange_dir>/in/<uuid>.json`;
+    - 1С-агент по таймеру забирает `in/*.json`, обрабатывает через
+      mcp_Диспетчер.ОбработатьСтроку и пишет ответ в `out/<то же имя>`,
+      а запрос из `in/` удаляет;
+    - Python опрашивает `out/<uuid>.json`, читает, удаляет.
+
+    Запрос пишется атомарно (через временное имя + rename), чтобы 1С (маска
+    `*.json`) не подхватил недописанный файл. Ответ 1С локально пишет НЕ атомарно,
+    поэтому при незавершённой записи (JSON ещё не парсится) ждём следующий опрос.
+    """
+
+    def __init__(self, exchange_dir: str, poll_interval: float = 0.2, timeout: float = 30.0):
+        """Инициализация транспорта.
+
+        Args:
+            exchange_dir: Папка обмена; внутри — подпапки in/ и out/.
+            poll_interval: Как часто (сек) проверять появление ответа в out/.
+            timeout: Сколько (сек) ждать ответ, затем TimeoutError.
+        """
+        self.exchange_dir = Path(exchange_dir)
+        self.in_dir = self.exchange_dir / "in"
+        self.out_dir = self.exchange_dir / "out"
+        self.poll_interval = poll_interval
+        self.timeout = timeout
+
+    def _ensure_dirs(self) -> None:
+        """Гарантировать наличие in/ и out/ (создание идемпотентно)."""
+        self.in_dir.mkdir(parents=True, exist_ok=True)
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+
+    async def send(self, request_body: str) -> str:
+        """Положить запрос в in/, дождаться ответа в out/ (под тем же именем)."""
+        self._ensure_dirs()
+
+        # Notifications (запрос без id) 1С-агент не отвечает — не ждём ответа.
+        # OneCClient всегда шлёт id, ветка на всякий случай.
+        try:
+            is_notification = "id" not in json.loads(request_body)
+        except (json.JSONDecodeError, TypeError):
+            is_notification = False
+
+        name = f"{uuid.uuid4().hex}.json"
+        req_path = self.in_dir / name
+        resp_path = self.out_dir / name
+        tmp_path = self.in_dir / f"{name}.tmp"
+
+        # Атомарная запись запроса: пишем во временный файл, затем rename в *.json
+        tmp_path.write_text(request_body, encoding="utf-8")
+        os.replace(tmp_path, req_path)
+
+        if is_notification:
+            return ""
+
+        deadline = time.monotonic() + self.timeout
+        while True:
+            if resp_path.exists():
+                try:
+                    # utf-8-sig снимает BOM, который пишет 1С ЗаписьТекста
+                    text = resp_path.read_text(encoding="utf-8-sig")
+                    json.loads(text)  # проверка, что ответ дописан целиком
+                except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+                    # ответ ещё пишется — ждём следующий опрос
+                    pass
+                else:
+                    try:
+                        resp_path.unlink()
+                    except OSError:
+                        pass
+                    return text
+
+            if time.monotonic() >= deadline:
+                # Уберём наш запрос, чтобы не копился, если агент не отвечает
+                try:
+                    req_path.unlink()
+                except OSError:
+                    pass
+                raise TimeoutError(
+                    f"Ответ 1С не получен за {self.timeout} с (файл {resp_path}). "
+                    f"Проверьте, что 1С-агент запущен и опрашивает {self.in_dir}."
+                )
+
+            await asyncio.sleep(self.poll_interval)
+
+    async def check_health(self) -> bool:
+        """Проверить доступность ПАПКИ ОБМЕНА (не самой 1С).
+
+        Файловый транспорт не может проверить, запущен ли 1С-агент, — это выяснится
+        таймаутом на первом вызове. Здесь проверяется только доступность каталога.
+        """
+        try:
+            self._ensure_dirs()
+            # Проба на запись — каталог in/ действительно пригоден
+            probe = self.in_dir / f".health_{uuid.uuid4().hex}.tmp"
+            probe.write_text("", encoding="utf-8")
+            probe.unlink()
+        except OSError as e:
+            logger.error(f"Папка обмена недоступна ({self.exchange_dir}): {e}")
+            raise
+        logger.info(
+            f"Файловый транспорт: папка обмена доступна ({self.exchange_dir}: in/, out/). "
+            f"Доступность 1С-агента этим НЕ проверяется — выяснится при первом вызове."
+        )
+        return True
+
+    async def close(self) -> None:
+        """Файловому транспорту нечего закрывать."""
+        return None

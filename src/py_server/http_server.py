@@ -331,6 +331,34 @@ class MCPHttpServer:
 		@self.app.get("/health")
 		async def health():
 			"""Проверка здоровья сервера."""
+			# Файловый транспорт: health означает доступность ПАПКИ ОБМЕНА, а не самой 1С.
+			# Запущен ли 1С-агент — здесь не проверяется (выяснится таймаутом при вызове).
+			if self.config.transport == "file":
+				from .onec_client import create_onec_client
+				temp_client = create_onec_client(self.config, None, None)
+				try:
+					await temp_client.check_health()
+					return {
+						"status": "healthy",
+						"exchange_dir": "ok",
+						"note": "доступна папка обмена; доступность 1С-агента этим не проверяется",
+						"auth": {"mode": self.config.auth_mode},
+					}
+				except Exception as e:
+					error_detail = f"{type(e).__name__}: {str(e) or repr(e)}"
+					logger.error(f"Папка обмена недоступна: {error_detail}")
+					return JSONResponse(
+						status_code=503,
+						content={
+							"status": "unhealthy",
+							"exchange_dir": "error",
+							"error_details": error_detail,
+							"auth": {"mode": self.config.auth_mode},
+						},
+					)
+				finally:
+					await temp_client.close()
+
 			try:
 				# Проверяем подключение к 1С
 				# Используем существующий клиент сессии, если есть, иначе создаём временный

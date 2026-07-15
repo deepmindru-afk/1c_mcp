@@ -13,7 +13,7 @@ from mcp import types
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 import base64
 
-from .transport import Transport, HttpTransport
+from .transport import Transport, HttpTransport, FileTransport
 
 if TYPE_CHECKING:
     from .config import Config
@@ -317,8 +317,13 @@ def create_onec_client(config: "Config", username: Optional[str], password: Opti
             unlock_code=config.onec_unlock_code,
         )
     elif transport_kind == "file":
-        # Файловый транспорт добавляется на шаге 2
-        raise NotImplementedError("Файловый транспорт (transport=file) ещё не реализован")
+        if not config.file_exchange_dir:
+            raise ValueError("transport=file требует MCP_FILE_EXCHANGE_DIR (папка обмена)")
+        transport = FileTransport(
+            exchange_dir=config.file_exchange_dir,
+            poll_interval=config.file_poll_interval,
+            timeout=config.file_timeout,
+        )
     else:
         raise ValueError(f"Неизвестный транспорт MCP_TRANSPORT={transport_kind!r} (ожидается 'http' или 'file')")
 
