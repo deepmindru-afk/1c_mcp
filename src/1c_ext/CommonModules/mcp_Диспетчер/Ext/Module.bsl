@@ -1,4 +1,4 @@
-// Репозиторий проекта:
+﻿// Репозиторий проекта:
 // https://github.com/vladimir-kharin/1c_mcp
 //
 // Харин Владимир (С) 2025. https://vharin.ru

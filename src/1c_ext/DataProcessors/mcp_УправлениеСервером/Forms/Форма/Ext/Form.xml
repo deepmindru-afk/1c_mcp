@@ -1,5 +1,7 @@
 ﻿<?xml version="1.0" encoding="UTF-8"?>
-<Form xmlns="http://v8.1c.ru/8.3/xcf/logform" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:dcscor="http://v8.1c.ru/8.1/data-composition-system/core" xmlns:dcssch="http://v8.1c.ru/8.1/data-composition-system/schema" xmlns:dcsset="http://v8.1c.ru/8.1/data-composition-system/settings" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.17">
+<Form xmlns="http://v8.1c.ru/8.3/xcf/logform" xmlns:app="http://v8.1c.ru/8.2/managed-application/core" xmlns:cfg="http://v8.1c.ru/8.1/data/enterprise/current-config" xmlns:dcscor="http://v8.1c.ru/8.1/data-composition-system/core" xmlns:dcssch="http://v8.1c.ru/8.1/data-composition-system/schema" xmlns:dcsset="http://v8.1c.ru/8.1/data-composition-system/settings" xmlns:ent="http://v8.1c.ru/8.1/data/enterprise" xmlns:lf="http://v8.1c.ru/8.2/managed-application/logform" xmlns:style="http://v8.1c.ru/8.1/data/ui/style" xmlns:sys="http://v8.1c.ru/8.1/data/ui/fonts/system" xmlns:v8="http://v8.1c.ru/8.1/data/core" xmlns:v8ui="http://v8.1c.ru/8.1/data/ui" xmlns:web="http://v8.1c.ru/8.1/data/ui/colors/web" xmlns:win="http://v8.1c.ru/8.1/data/ui/colors/windows" xmlns:xr="http://v8.1c.ru/8.3/xcf/readable" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.20">
+	<AutoSaveDataInSettings>Use</AutoSaveDataInSettings>
+	<SaveDataInSettings>UseList</SaveDataInSettings>
 	<AutoCommandBar name="ФормаКоманднаяПанель" id="-1">
 		<Autofill>false</Autofill>
 	</AutoCommandBar>
@@ -354,6 +356,115 @@
 						</UsualGroup>
 					</ChildItems>
 				</Page>
+				<Page name="СтраницаФайловыйТранспорт" id="100">
+					<Title>
+						<v8:item>
+							<v8:lang>ru</v8:lang>
+							<v8:content>Файловый транспорт (тест)</v8:content>
+						</v8:item>
+					</Title>
+					<ExtendedTooltip name="СтраницаФайловыйТранспортРасширеннаяПодсказка" id="101"/>
+					<ChildItems>
+						<LabelDecoration name="ФТ_Пояснение" id="102">
+							<AutoMaxWidth>false</AutoMaxWidth>
+							<TextColor>style:FieldSelectionBackColor</TextColor>
+							<Title formatted="false">
+								<v8:item>
+									<v8:lang>ru</v8:lang>
+									<v8:content>Механизм для тестирования MCP без публикации HTTP-сервиса на веб-сервере.
+1С периодически опрашивает папку обмена (локальную или FTP), выполняет JSON-RPC запросы через диспетчер и пишет ответы. Не для промышленной эксплуатации.</v8:content>
+								</v8:item>
+							</Title>
+							<ContextMenu name="ФТ_ПояснениеКонтекстноеМеню" id="103"/>
+							<ExtendedTooltip name="ФТ_ПояснениеРасширеннаяПодсказка" id="104"/>
+						</LabelDecoration>
+						<InputField name="ФТ_ПолеАдрес" id="105">
+							<DataPath>ФТ_Адрес</DataPath>
+							<Title>
+								<v8:item>
+									<v8:lang>ru</v8:lang>
+									<v8:content>FTP / папка</v8:content>
+								</v8:item>
+							</Title>
+							<TitleLocation>Top</TitleLocation>
+							<ToolTipRepresentation>Button</ToolTipRepresentation>
+							<Width>60</Width>
+							<AutoMaxWidth>false</AutoMaxWidth>
+							<ChoiceButton>true</ChoiceButton>
+							<ContextMenu name="ФТ_ПолеАдресКонтекстноеМеню" id="106"/>
+							<ExtendedTooltip name="ФТ_ПолеАдресРасширеннаяПодсказка" id="107">
+								<Title formatted="false">
+									<v8:item>
+										<v8:lang>ru</v8:lang>
+										<v8:content>Папка обмена для тестового файлового транспорта. Внутри неё используются подпапки in (запросы) и out (ответы), они создаются автоматически.
+
+Допустимые форматы адреса:
+• Локальный или сетевой путь, например D:\mcp_обмен или \\server\share\mcp
+• FTP с учётными данными прямо в адресе: ftp://пользователь:пароль@хост:порт/путь
+
+Кнопка выбора справа открывает диалог выбора каталога.</v8:content>
+									</v8:item>
+								</Title>
+							</ExtendedTooltip>
+							<Events>
+								<Event name="StartChoice">ФТ_ПолеАдресНачалоВыбора</Event>
+							</Events>
+						</InputField>
+						<InputField name="ФТ_ПолеИнтервал" id="108">
+							<DataPath>ФТ_Интервал</DataPath>
+							<Title>
+								<v8:item>
+									<v8:lang>ru</v8:lang>
+									<v8:content>Интервал опроса, сек</v8:content>
+								</v8:item>
+							</Title>
+							<ToolTipRepresentation>Button</ToolTipRepresentation>
+							<Width>10</Width>
+							<AutoMaxWidth>false</AutoMaxWidth>
+							<ContextMenu name="ФТ_ПолеИнтервалКонтекстноеМеню" id="109"/>
+							<ExtendedTooltip name="ФТ_ПолеИнтервалРасширеннаяПодсказка" id="110">
+								<Title formatted="false">
+									<v8:item>
+										<v8:lang>ru</v8:lang>
+										<v8:content>Период опроса папки обмена в секундах. По умолчанию 3 секунды, если не указано.</v8:content>
+									</v8:item>
+								</Title>
+							</ExtendedTooltip>
+						</InputField>
+						<UsualGroup name="ФТ_ГруппаУправление" id="111">
+							<Group>AlwaysHorizontal</Group>
+							<Representation>None</Representation>
+							<ShowTitle>false</ShowTitle>
+							<ExtendedTooltip name="ФТ_ГруппаУправлениеРасширеннаяПодсказка" id="112"/>
+							<ChildItems>
+								<Button name="ФТ_КнопкаСтарт" id="113">
+									<Type>UsualButton</Type>
+									<CommandName>Form.Command.ФТ_Старт</CommandName>
+									<ExtendedTooltip name="ФТ_КнопкаСтартРасширеннаяПодсказка" id="114"/>
+								</Button>
+								<Button name="ФТ_КнопкаСтоп" id="115">
+									<Type>UsualButton</Type>
+									<CommandName>Form.Command.ФТ_Стоп</CommandName>
+									<ExtendedTooltip name="ФТ_КнопкаСтопРасширеннаяПодсказка" id="116"/>
+								</Button>
+								<InputField name="ФТ_ПолеСостояние" id="117">
+									<DataPath>ФТ_Состояние</DataPath>
+									<ReadOnly>true</ReadOnly>
+									<Title>
+										<v8:item>
+											<v8:lang>ru</v8:lang>
+											<v8:content>Состояние</v8:content>
+										</v8:item>
+									</Title>
+									<Width>40</Width>
+									<AutoMaxWidth>false</AutoMaxWidth>
+									<ContextMenu name="ФТ_ПолеСостояниеКонтекстноеМеню" id="118"/>
+									<ExtendedTooltip name="ФТ_ПолеСостояниеРасширеннаяПодсказка" id="119"/>
+								</InputField>
+							</ChildItems>
+						</UsualGroup>
+					</ChildItems>
+				</Page>
 			</ChildItems>
 		</Pages>
 	</ChildItems>
@@ -583,5 +694,102 @@
 				</Column>
 			</Columns>
 		</Attribute>
+		<Attribute name="ФТ_Адрес" id="5">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>FTP / папка</v8:content>
+				</v8:item>
+			</Title>
+			<Type>
+				<v8:Type>xs:string</v8:Type>
+				<v8:StringQualifiers>
+					<v8:Length>0</v8:Length>
+					<v8:AllowedLength>Variable</v8:AllowedLength>
+				</v8:StringQualifiers>
+			</Type>
+			<SavedData>true</SavedData>
+			<Save>
+				<Field>ФТ_Адрес</Field>
+			</Save>
+		</Attribute>
+		<Attribute name="ФТ_Интервал" id="6">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Интервал опроса</v8:content>
+				</v8:item>
+			</Title>
+			<Type>
+				<v8:Type>xs:decimal</v8:Type>
+				<v8:NumberQualifiers>
+					<v8:Digits>5</v8:Digits>
+					<v8:FractionDigits>0</v8:FractionDigits>
+					<v8:AllowedSign>Nonnegative</v8:AllowedSign>
+				</v8:NumberQualifiers>
+			</Type>
+			<SavedData>true</SavedData>
+			<Save>
+				<Field>ФТ_Интервал</Field>
+			</Save>
+		</Attribute>
+		<Attribute name="ФТ_Запущен" id="7">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Запущен</v8:content>
+				</v8:item>
+			</Title>
+			<Type>
+				<v8:Type>xs:boolean</v8:Type>
+			</Type>
+		</Attribute>
+		<Attribute name="ФТ_Состояние" id="8">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Состояние</v8:content>
+				</v8:item>
+			</Title>
+			<Type>
+				<v8:Type>xs:string</v8:Type>
+				<v8:StringQualifiers>
+					<v8:Length>0</v8:Length>
+					<v8:AllowedLength>Variable</v8:AllowedLength>
+				</v8:StringQualifiers>
+			</Type>
+		</Attribute>
 	</Attributes>
+	<Commands>
+		<Command name="ФТ_Старт" id="1">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Старт</v8:content>
+				</v8:item>
+			</Title>
+			<ToolTip>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Запустить опрос папки обмена</v8:content>
+				</v8:item>
+			</ToolTip>
+			<Action>ФТ_Старт</Action>
+		</Command>
+		<Command name="ФТ_Стоп" id="2">
+			<Title>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Стоп</v8:content>
+				</v8:item>
+			</Title>
+			<ToolTip>
+				<v8:item>
+					<v8:lang>ru</v8:lang>
+					<v8:content>Остановить опрос папки обмена</v8:content>
+				</v8:item>
+			</ToolTip>
+			<Action>ФТ_Стоп</Action>
+		</Command>
+	</Commands>
 </Form>
