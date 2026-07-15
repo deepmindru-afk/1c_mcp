@@ -19,6 +19,12 @@ class Config(BaseSettings):
 	onec_password: Optional[str] = Field(default=None, description="Пароль пользователя 1С")
 	onec_service_root: str = Field(default="mcp", description="Корневой URL HTTP-сервиса в 1С")
 	onec_unlock_code: Optional[str] = Field(default=None, description="Код разрешения (unlock code) для входа при блокировке начала сеансов; передаётся как query-параметр uc")
+
+	# Транспорт до 1С: http (HTTP-сервис) или file (обмен через папку — для тестов без веб-сервера)
+	transport: Literal["http", "file"] = Field(default="http", description="Транспорт до 1С: http или file")
+	file_exchange_dir: Optional[str] = Field(default=None, description="Папка обмена для transport=file (внутри — подпапки in/ и out/)")
+	file_poll_interval: float = Field(default=0.2, description="Как часто (сек) проверять появление ответа в out/ для transport=file")
+	file_timeout: float = Field(default=30.0, description="Сколько (сек) ждать ответ 1С для transport=file, затем ошибка")
 	
 	# Настройки MCP
 	server_name: str = Field(default="1C Configuration Data Tools", description="Имя MCP-сервера")

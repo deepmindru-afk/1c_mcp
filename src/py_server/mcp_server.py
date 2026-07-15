@@ -11,7 +11,7 @@ from mcp.server.models import InitializationOptions
 from mcp.server.lowlevel import NotificationOptions
 from mcp import types
 
-from .onec_client import OneCClient
+from .onec_client import OneCClient, create_onec_client
 from .config import Config
 
 
@@ -66,14 +66,8 @@ class MCPProxy:
 			password = self.config.onec_password
 			logger.debug(f"Режим auth_mode=none, использую дефолтные креденшилы: {username}")
 		
-		# Инициализация при запуске
-		self.onec_client = OneCClient(
-			base_url=self.config.onec_url,
-			username=username,
-			password=password,
-			service_root=self.config.onec_service_root,
-			unlock_code=self.config.onec_unlock_code
-		)
+		# Инициализация при запуске (транспорт выбирается фабрикой по config.transport)
+		self.onec_client = create_onec_client(self.config, username, password)
 		
 		logger.debug(f"Подключение к 1С: {self.config.onec_url}")
 		logger.debug(f"HTTP-сервис: {self.config.onec_service_root}")

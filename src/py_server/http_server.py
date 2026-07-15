@@ -338,13 +338,11 @@ class MCPHttpServer:
 					await self.mcp_proxy.onec_client.check_health()
 				elif self.config.onec_username and self.config.onec_password:
 					# Нет активной сессии — проверяем 1С напрямую через временный клиент
-					from .onec_client import OneCClient
-					temp_client = OneCClient(
-						base_url=self.config.onec_url,
-						username=self.config.onec_username,
-						password=self.config.onec_password,
-						service_root=self.config.onec_service_root,
-						unlock_code=self.config.onec_unlock_code
+					from .onec_client import create_onec_client
+					temp_client = create_onec_client(
+						self.config,
+						self.config.onec_username,
+						self.config.onec_password,
 					)
 					try:
 						await temp_client.check_health()
