@@ -252,3 +252,218 @@ class FileTransport:
     async def close(self) -> None:
         """Файловому транспорту нечего закрывать."""
         return None
+
+
+class ReverseHttpTransport:
+    """Обратный HTTP-транспорт (httppoll): агент 1С сам опрашивает прокси.
+
+    Для изолированных контуров, куда с локальной машины есть только проброс
+    TCP-порта (например, NX-туннель NoMachine): прокси поднимает листенер на
+    127.0.0.1:<port>, агент 1С (форма mcp_УправлениеСервером) по таймеру
+    забирает запросы GET /poll и возвращает ответы POST /result/<тикет>.
+    Направление TCP-соединения — всегда «агент → прокси», на серверной машине
+    не нужны ни веб-сервер, ни открытые входящие порты.
+
+    Протокол:
+    - GET /poll: 200 + сырое тело JSON-RPC + заголовок X-MCP-Ticket, либо 204
+      (очередь пуста). Каждый запрос выдаётся ровно одному опросчику.
+    - POST /result/<тикет>: тело — сырой JSON-RPC-ответ; 204 принято,
+      404 неизвестный тикет, 410 тикет истёк/ответ не ожидается.
+    - GET /health: {"status":"ok","pending":N,"inflight":M} — диагностика туннеля.
+
+    Забранный агентом, но не отвеченный запрос НЕ перевыдаётся: тикет истекает
+    по таймауту (инструменты бывают неидемпотентными, двойное исполнение хуже
+    таймаута). Листенер — эксклюзивный ресурс (порт), поэтому транспорт
+    поддерживается только в stdio-режиме прокси (один клиент на процесс).
+    """
+
+    # Сколько секунд помнить истёкшие тикеты — только чтобы отличать 410 от 404
+    EXPIRED_TTL = 600.0
+
+    def __init__(self, host: str = "127.0.0.1", port: int = 9090, timeout: float = 60.0):
+        """Инициализация транспорта.
+
+        Args:
+            host: Адрес листенера (обычно 127.0.0.1 — наружу выводит NX-туннель).
+            port: Порт листенера.
+            timeout: Сколько (сек) ждать, пока агент заберёт запрос и вернёт ответ.
+        """
+        self.host = host
+        self.port = port
+        self.timeout = timeout
+
+        self._server: Optional[asyncio.AbstractServer] = None
+        # Невыданные запросы: тикет -> тело (dict в Python упорядочен — это и очередь)
+        self._pending: dict[str, str] = {}
+        # Ожидающие ответа future: тикет -> future (у нотификаций future нет)
+        self._futures: dict[str, "asyncio.Future[str]"] = {}
+        # Истёкшие/не ожидающие ответа тикеты: тикет -> момент, когда запись можно забыть
+        self._expired: dict[str, float] = {}
+
+    async def _ensure_server(self) -> None:
+        """Лениво поднять листенер; занятый порт — понятная ошибка сразу."""
+        if self._server is not None:
+            return
+        try:
+            self._server = await asyncio.start_server(self._handle_connection, self.host, self.port)
+        except OSError as e:
+            raise OSError(
+                f"Не удалось занять {self.host}:{self.port} для httppoll-листенера: {e}. "
+                f"Порт занят другим процессом (или вторым экземпляром прокси)?"
+            ) from e
+        logger.info(f"httppoll: листенер запущен на {self.host}:{self.port}, ждём опросов агента 1С")
+
+    async def send(self, request_body: str) -> str:
+        """Поставить запрос в очередь и дождаться, пока агент вернёт ответ."""
+        await self._ensure_server()
+
+        # Notifications (запрос без id) ответа не имеют: выдаём агенту штатно,
+        # но future не заводим и возвращаем "" сразу.
+        try:
+            is_notification = "id" not in json.loads(request_body)
+        except (json.JSONDecodeError, TypeError):
+            is_notification = False
+
+        ticket = uuid.uuid4().hex
+        self._pending[ticket] = request_body
+
+        if is_notification:
+            return ""
+
+        future: "asyncio.Future[str]" = asyncio.get_running_loop().create_future()
+        self._futures[ticket] = future
+        try:
+            return await asyncio.wait_for(future, self.timeout)
+        except asyncio.TimeoutError:
+            # Убираем следы запроса; поздний POST агента получит 410, а не 404
+            self._pending.pop(ticket, None)
+            self._futures.pop(ticket, None)
+            self._mark_expired(ticket)
+            raise TimeoutError(
+                f"Агент 1С не вернул ответ за {self.timeout} с (тикет {ticket}). "
+                f"Проверьте, что агент запущен (форма mcp_УправлениеСервером, адрес "
+                f"http://{self.host}:{self.port}) и порт проброшен туннелем."
+            )
+
+    async def check_health(self) -> bool:
+        """Проверить, что листенер поднят (bind порта прошёл).
+
+        Живость самого агента 1С не проверяется — как и у файлового транспорта,
+        она выяснится таймаутом первого вызова.
+        """
+        await self._ensure_server()
+        logger.info(
+            f"httppoll: листенер доступен на {self.host}:{self.port}. "
+            f"Доступность агента 1С этим НЕ проверяется — выяснится при первом вызове."
+        )
+        return True
+
+    async def close(self) -> None:
+        """Погасить листенер и разбудить всех ожидающих ошибкой."""
+        if self._server is not None:
+            self._server.close()
+            await self._server.wait_closed()
+            self._server = None
+        self._pending.clear()
+        for future in self._futures.values():
+            if not future.done():
+                future.set_exception(ConnectionError("httppoll-транспорт закрыт"))
+        self._futures.clear()
+        self._expired.clear()
+
+    # --- внутренняя кухня листенера -------------------------------------
+
+    def _mark_expired(self, ticket: str) -> None:
+        """Запомнить тикет как истёкший (для ответа 410) и подчистить старые."""
+        now = time.monotonic()
+        self._expired[ticket] = now + self.EXPIRED_TTL
+        for old, deadline in list(self._expired.items()):
+            if deadline <= now:
+                del self._expired[old]
+
+    async def _handle_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        """Обслужить одно HTTP-соединение агента (запрос → ответ → закрыть)."""
+        try:
+            method, path, body = await asyncio.wait_for(self._read_request(reader), timeout=30.0)
+            status, headers, response_body = self._route(method, path, body)
+        except (asyncio.TimeoutError, asyncio.IncompleteReadError, ValueError, ConnectionError) as e:
+            logger.warning(f"httppoll: битый запрос от агента: {type(e).__name__}: {e}")
+            status, headers, response_body = 400, {}, b""
+        try:
+            await self._write_response(writer, status, headers, response_body)
+        except (ConnectionError, OSError):
+            pass  # агент оборвал соединение — его тик повторит попытку
+        finally:
+            writer.close()
+
+    @staticmethod
+    async def _read_request(reader: asyncio.StreamReader) -> tuple[str, str, bytes]:
+        """Разобрать минимальный HTTP/1.1-запрос: строка, заголовки, тело по Content-Length."""
+        request_line = (await reader.readline()).decode("latin-1").rstrip("\r\n")
+        parts = request_line.split(" ")
+        if len(parts) < 3:
+            raise ValueError(f"не HTTP-запрос: {request_line!r}")
+        method, path = parts[0].upper(), parts[1]
+
+        content_length = 0
+        while True:
+            line = (await reader.readline()).decode("latin-1").rstrip("\r\n")
+            if not line:
+                break
+            name, _, value = line.partition(":")
+            if name.strip().lower() == "content-length":
+                content_length = int(value.strip())
+
+        body = await reader.readexactly(content_length) if content_length else b""
+        return method, path, body
+
+    def _route(self, method: str, path: str, body: bytes) -> tuple[int, dict, bytes]:
+        """Маршрутизация трёх эндпоинтов протокола."""
+        path = path.split("?", 1)[0]
+
+        if method == "GET" and path == "/poll":
+            if not self._pending:
+                return 204, {}, b""
+            ticket = next(iter(self._pending))
+            request_body = self._pending.pop(ticket)
+            if ticket not in self._futures:
+                # Нотификация: выдана, но ответ не ожидается — поздний POST получит 410
+                self._mark_expired(ticket)
+            return 200, {"X-MCP-Ticket": ticket}, request_body.encode("utf-8")
+
+        if method == "POST" and path.startswith("/result/"):
+            ticket = path[len("/result/"):]
+            future = self._futures.pop(ticket, None)
+            if future is not None:
+                # utf-8-sig на случай, если 1С всё же добавит BOM
+                if not future.done():
+                    future.set_result(body.decode("utf-8-sig"))
+                self._mark_expired(ticket)
+                return 204, {}, b""
+            if ticket in self._expired:
+                return 410, {}, b""
+            return 404, {}, b""
+
+        if method == "GET" and path == "/health":
+            payload = json.dumps({
+                "status": "ok",
+                "pending": len(self._pending),
+                "inflight": len(self._futures) - sum(1 for t in self._futures if t in self._pending),
+            }).encode("utf-8")
+            return 200, {"Content-Type": "application/json; charset=utf-8"}, payload
+
+        return 404, {}, b""
+
+    @staticmethod
+    async def _write_response(writer: asyncio.StreamWriter, status: int, headers: dict, body: bytes) -> None:
+        """Записать HTTP-ответ; соединение одноразовое (Connection: close)."""
+        reasons = {200: "OK", 204: "No Content", 400: "Bad Request", 404: "Not Found", 410: "Gone"}
+        lines = [f"HTTP/1.1 {status} {reasons.get(status, 'Unknown')}"]
+        if status == 200 and "Content-Type" not in headers:
+            lines.append("Content-Type: application/json; charset=utf-8")
+        for name, value in headers.items():
+            lines.append(f"{name}: {value}")
+        lines.append(f"Content-Length: {len(body)}")
+        lines.append("Connection: close")
+        writer.write(("\r\n".join(lines) + "\r\n\r\n").encode("latin-1") + body)
+        await writer.drain()

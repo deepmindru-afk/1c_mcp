@@ -49,9 +49,14 @@ def create_parser() -> argparse.ArgumentParser:
   python -m src.py_server --env-file .env
 
 Переменные окружения:
-  MCP_ONEC_URL           - URL базы 1С (обязательно)
-  MCP_ONEC_USERNAME      - Имя пользователя 1С (обязательно при auth_mode=none)
-  MCP_ONEC_PASSWORD      - Пароль пользователя 1С (обязательно при auth_mode=none)
+  MCP_TRANSPORT          - Транспорт до 1С: http, file или httppoll (по умолчанию: http)
+  MCP_ONEC_URL           - URL базы 1С (обязательно при transport=http)
+  MCP_ONEC_USERNAME      - Имя пользователя 1С (обязательно при transport=http и auth_mode=none)
+  MCP_ONEC_PASSWORD      - Пароль пользователя 1С (обязательно при transport=http и auth_mode=none)
+  MCP_FILE_EXCHANGE_DIR  - Папка обмена для transport=file (обязательно при transport=file)
+  MCP_HTTPPOLL_HOST      - Адрес httppoll-листенера (по умолчанию: 127.0.0.1)
+  MCP_HTTPPOLL_PORT      - Порт httppoll-листенера (по умолчанию: 9090)
+  MCP_HTTPPOLL_TIMEOUT   - Таймаут ожидания ответа агента 1С, сек (по умолчанию: 60)
   MCP_ONEC_SERVICE_ROOT  - Корневой URL HTTP-сервиса (по умолчанию: mcp)
   MCP_ONEC_UNLOCK_CODE   - Код разрешения при блокировке начала сеансов (опционально)
   MCP_HOST               - Хост HTTP-сервера (по умолчанию: 127.0.0.1)
@@ -226,12 +231,22 @@ async def main():
 		if not config.file_exchange_dir:
 			logger.error("Для transport=file обязателен MCP_FILE_EXCHANGE_DIR (папка обмена).")
 			sys.exit(1)
-	elif config.auth_mode == "none":
-		if config.onec_username is None or config.onec_password is None:
-			logger.error("Для auth_mode=none обязательны MCP_ONEC_USERNAME и MCP_ONEC_PASSWORD.")
+	elif config.transport == "httppoll":
+		# Обратный HTTP-транспорт: листенер — эксклюзивный ресурс (порт), а http-режим
+		# создаёт по клиенту на каждую MCP-сессию — поддерживаем только stdio.
+		if args.mode != "stdio":
+			logger.error("transport=httppoll поддерживается только в режиме stdio (один клиент на процесс).")
 			sys.exit(1)
 	else:
-		if config.onec_username or config.onec_password:
+		# Прямой HTTP-транспорт — единственный, которому нужны URL и креды 1С
+		if not config.onec_url:
+			logger.error("Для transport=http обязателен MCP_ONEC_URL (URL базы 1С).")
+			sys.exit(1)
+		if config.auth_mode == "none":
+			if config.onec_username is None or config.onec_password is None:
+				logger.error("Для auth_mode=none обязательны MCP_ONEC_USERNAME и MCP_ONEC_PASSWORD.")
+				sys.exit(1)
+		elif config.onec_username or config.onec_password:
 			logger.warning("MCP_ONEC_USERNAME/MCP_ONEC_PASSWORD заданы, но будут игнорироваться при auth_mode=oauth2.")
 	
 	# Отладочная информация через logger (подчиняется уровню логирования)

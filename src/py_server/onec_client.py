@@ -13,7 +13,7 @@ from mcp import types
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 import base64
 
-from .transport import Transport, HttpTransport, FileTransport
+from .transport import Transport, HttpTransport, FileTransport, ReverseHttpTransport
 
 if TYPE_CHECKING:
     from .config import Config
@@ -324,7 +324,13 @@ def create_onec_client(config: "Config", username: Optional[str], password: Opti
             poll_interval=config.file_poll_interval,
             timeout=config.file_timeout,
         )
+    elif transport_kind == "httppoll":
+        transport = ReverseHttpTransport(
+            host=config.httppoll_host,
+            port=config.httppoll_port,
+            timeout=config.httppoll_timeout,
+        )
     else:
-        raise ValueError(f"Неизвестный транспорт MCP_TRANSPORT={transport_kind!r} (ожидается 'http' или 'file')")
+        raise ValueError(f"Неизвестный транспорт MCP_TRANSPORT={transport_kind!r} (ожидается 'http', 'file' или 'httppoll')")
 
     return OneCClient(transport)

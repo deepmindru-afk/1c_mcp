@@ -14,17 +14,25 @@ class Config(BaseSettings):
 	port: int = Field(default=8000, description="Порт для HTTP-сервера")
 	
 	# Настройки подключения к 1С
-	onec_url: str = Field(..., description="URL базы 1С")
+	# Обязателен только при transport=http (проверяется в main.py) — file/httppoll
+	# ходят в 1С без URL.
+	onec_url: str = Field(default="", description="URL базы 1С (обязателен при transport=http)")
 	onec_username: Optional[str] = Field(default=None, description="Имя пользователя 1С")
 	onec_password: Optional[str] = Field(default=None, description="Пароль пользователя 1С")
 	onec_service_root: str = Field(default="mcp", description="Корневой URL HTTP-сервиса в 1С")
 	onec_unlock_code: Optional[str] = Field(default=None, description="Код разрешения (unlock code) для входа при блокировке начала сеансов; передаётся как query-параметр uc")
 
-	# Транспорт до 1С: http (HTTP-сервис) или file (обмен через папку — для тестов без веб-сервера)
-	transport: Literal["http", "file"] = Field(default="http", description="Транспорт до 1С: http или file")
+	# Транспорт до 1С: http (HTTP-сервис), file (обмен через папку) или
+	# httppoll (обратный HTTP: агент 1С сам опрашивает листенер прокси)
+	transport: Literal["http", "file", "httppoll"] = Field(default="http", description="Транспорт до 1С: http, file или httppoll")
 	file_exchange_dir: Optional[str] = Field(default=None, description="Папка обмена для transport=file (внутри — подпапки in/ и out/)")
 	file_poll_interval: float = Field(default=0.2, description="Как часто (сек) проверять появление ответа в out/ для transport=file")
 	file_timeout: float = Field(default=30.0, description="Сколько (сек) ждать ответ 1С для transport=file, затем ошибка")
+
+	# Настройки transport=httppoll (листенер, который опрашивает агент 1С)
+	httppoll_host: str = Field(default="127.0.0.1", description="Адрес листенера httppoll")
+	httppoll_port: int = Field(default=9090, description="Порт листенера httppoll (его же пробрасывает NX-туннель)")
+	httppoll_timeout: float = Field(default=60.0, description="Сколько (сек) ждать ответ агента 1С для transport=httppoll, затем ошибка")
 	
 	# Настройки MCP
 	server_name: str = Field(default="1C Configuration Data Tools", description="Имя MCP-сервера")
