@@ -36,7 +36,7 @@ class Config(BaseSettings):
 	
 	# Настройки MCP
 	server_name: str = Field(default="1C Configuration Data Tools", description="Имя MCP-сервера")
-	server_version: str = Field(default="1.1.0", description="Версия MCP-сервера")
+	server_version: str = Field(default="1.6.0", description="Версия MCP-сервера")
 	
 	# Настройки логирования
 	log_level: str = Field(default="INFO", description="Уровень логирования")

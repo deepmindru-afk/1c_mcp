@@ -7,7 +7,7 @@ from .stdio_server import run_stdio_server
 from .onec_client import OneCClient, create_onec_client
 from .transport import Transport, HttpTransport, FileTransport, FtpFileTransport, ReverseHttpTransport
 
-__version__ = "1.1.0"
+__version__ = "1.6.0"
 
 __all__ = [
 	"Config",
