@@ -254,6 +254,208 @@ class FileTransport:
         return None
 
 
+class FtpFileTransport:
+    """Файловый транспорт через FTP: та же папка обмена, но доступная прокси
+    только по протоколу FTP.
+
+    Сценарий: FTP-сервер на третьей машине, которую видят и прокси, и 1С —
+    при этом ни общей файловой системы, ни прямой сети между ними нет
+    (httppoll в такой топологии не работает: агенту 1С не достучаться до
+    листенера прокси).
+
+    Протокол обмена идентичен FileTransport (запрос in/<uuid>.json, ответ
+    out/<то же имя>); агент 1С работает с той же папкой своей FTP-веткой.
+    Атомарность записи запроса — загрузка под именем *.json.tmp и
+    переименование (RNFR/RNTO), чтобы агент (маска *.json) не подхватил
+    недописанный файл. Агент отвечает так же атомарно, но json.loads-проверка
+    оставлена как страховка.
+
+    Адрес: ftp://[пользователь[:пароль]@]хост[:порт]/путь — тот же формат,
+    что на форме агента. FTPS не поддерживается (агент 1С тоже ходит без
+    шифрования). ftplib синхронный, поэтому весь send выполняется одним
+    блокирующим куском в worker-потоке (asyncio.to_thread); соединение
+    открывается на каждый вызов — без разделяемого состояния и гонок.
+    """
+
+    def __init__(self, url: str, poll_interval: float = 1.0, timeout: float = 30.0):
+        """Инициализация транспорта.
+
+        Args:
+            url: Адрес папки обмена: ftp://[user[:pass]@]host[:port]/path.
+            poll_interval: Как часто (сек) проверять появление ответа в out/.
+            timeout: Сколько (сек) ждать ответ, затем TimeoutError.
+        """
+        from urllib.parse import urlsplit, unquote
+
+        parts = urlsplit(url.strip())
+        if parts.scheme.lower() != "ftp":
+            raise ValueError(f"FtpFileTransport ожидает адрес ftp://, получено: {url!r}")
+
+        self.url = url.strip()
+        self.host = parts.hostname or ""
+        self.port = parts.port or 21
+        self.user = unquote(parts.username) if parts.username else ""
+        self.password = unquote(parts.password) if parts.password else ""
+        if not self.host:
+            raise ValueError(f"В FTP-адресе не указан хост: {url!r}")
+
+        base = parts.path.rstrip("/")
+        self.in_dir = f"{base}/in"
+        self.out_dir = f"{base}/out"
+        self.poll_interval = poll_interval
+        self.timeout = timeout
+
+    # --- Синхронные помощники (выполняются в worker-потоке) ---
+
+    def _connect(self):
+        """Открыть FTP-соединение (пассивный режим — как у агента 1С)."""
+        import ftplib
+
+        ftp = ftplib.FTP()
+        ftp.connect(self.host, self.port, timeout=10)
+        ftp.login(self.user, self.password)
+        ftp.set_pasv(True)
+        return ftp
+
+    def _ensure_dirs(self, ftp) -> None:
+        """Гарантировать наличие in/ и out/ вместе с родительскими каталогами
+        (аналог mkdir(parents=True); ошибки «уже существует» игнорируются)."""
+        import ftplib
+
+        for target in (self.in_dir, self.out_dir):
+            path = ""
+            for segment in (s for s in target.split("/") if s):
+                path += "/" + segment
+                try:
+                    ftp.mkd(path)
+                except ftplib.error_perm:
+                    pass  # уже существует (или нет прав — выяснится при записи)
+
+    def _exists(self, ftp, directory: str, name: str) -> bool:
+        """Есть ли файл name в каталоге directory (по листингу NLST)."""
+        import ftplib
+
+        try:
+            listing = ftp.nlst(directory)
+        except ftplib.error_perm:
+            return False  # пустой каталог у части серверов — 550
+        # NLST возвращает имена или пути — сравниваем по последнему сегменту
+        return any(entry.replace("\\", "/").rsplit("/", 1)[-1] == name for entry in listing)
+
+    def _upload(self, ftp, remote_path: str, body: str) -> None:
+        """Загрузить строку как файл (бинарно, UTF-8 без BOM)."""
+        import io
+
+        ftp.storbinary(f"STOR {remote_path}", io.BytesIO(body.encode("utf-8")))
+
+    def _download(self, ftp, remote_path: str) -> str:
+        """Скачать файл в строку (utf-8-sig снимает BOM, который пишет 1С)."""
+        import io
+
+        buffer = io.BytesIO()
+        ftp.retrbinary(f"RETR {remote_path}", buffer.write)
+        return buffer.getvalue().decode("utf-8-sig")
+
+    def _delete_quiet(self, ftp, remote_path: str) -> None:
+        """Удалить файл, игнорируя ошибки (очистка)."""
+        try:
+            ftp.delete(remote_path)
+        except Exception:
+            pass
+
+    def _sync_send(self, request_body: str, is_notification: bool) -> str:
+        """Полный цикл send одним блокирующим куском (для worker-потока)."""
+        name = f"{uuid.uuid4().hex}.json"
+        req_path = f"{self.in_dir}/{name}"
+        resp_path = f"{self.out_dir}/{name}"
+        tmp_path = f"{req_path}.tmp"
+
+        ftp = self._connect()
+        try:
+            self._ensure_dirs(ftp)
+
+            # Атомарная публикация запроса: STOR во временное имя + RNFR/RNTO
+            self._upload(ftp, tmp_path, request_body)
+            ftp.rename(tmp_path, req_path)
+
+            if is_notification:
+                return ""
+
+            deadline = time.monotonic() + self.timeout
+            while True:
+                if self._exists(ftp, self.out_dir, name):
+                    try:
+                        text = self._download(ftp, resp_path)
+                        json.loads(text)  # страховка: ответ дописан целиком
+                    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+                        pass  # дождёмся следующего опроса
+                    else:
+                        self._delete_quiet(ftp, resp_path)
+                        return text
+
+                if time.monotonic() >= deadline:
+                    # Уберём наш запрос, чтобы не копился, если агент не отвечает
+                    self._delete_quiet(ftp, req_path)
+                    raise TimeoutError(
+                        f"Ответ 1С не получен за {self.timeout} с (файл {resp_path} на {self.host}). "
+                        f"Проверьте, что 1С-агент запущен и опрашивает {self.url}."
+                    )
+
+                time.sleep(self.poll_interval)
+        finally:
+            try:
+                ftp.quit()
+            except Exception:
+                ftp.close()
+
+    # --- Асинхронный интерфейс Transport ---
+
+    async def send(self, request_body: str) -> str:
+        """Положить запрос в in/ по FTP, дождаться ответа в out/."""
+        # Notifications (запрос без id) 1С-агент не отвечает — не ждём ответа.
+        try:
+            is_notification = "id" not in json.loads(request_body)
+        except (json.JSONDecodeError, TypeError):
+            is_notification = False
+
+        return await asyncio.to_thread(self._sync_send, request_body, is_notification)
+
+    async def check_health(self) -> bool:
+        """Проверить доступность FTP-СЕРВЕРА и папки обмена (не самой 1С).
+
+        Как и у FileTransport: запущен ли 1С-агент, выяснится таймаутом на
+        первом вызове. Здесь — коннект, наличие in/ и out/, проба на запись.
+        """
+
+        def _sync_health() -> None:
+            ftp = self._connect()
+            try:
+                self._ensure_dirs(ftp)
+                probe = f"{self.in_dir}/.health_{uuid.uuid4().hex}.tmp"
+                self._upload(ftp, probe, "")
+                self._delete_quiet(ftp, probe)
+            finally:
+                try:
+                    ftp.quit()
+                except Exception:
+                    ftp.close()
+
+        try:
+            await asyncio.to_thread(_sync_health)
+        except Exception as e:
+            logger.error(f"FTP-папка обмена недоступна ({self.url}): {e}")
+            raise
+        logger.info(
+            f"FTP-транспорт: папка обмена доступна ({self.host}:{self.port}, in/, out/). "
+            f"Доступность 1С-агента этим НЕ проверяется — выяснится при первом вызове."
+        )
+        return True
+
+    async def close(self) -> None:
+        """Соединение открывается на каждый вызов — закрывать нечего."""
+        return None
+
+
 class ReverseHttpTransport:
     """Обратный HTTP-транспорт (httppoll): агент 1С сам опрашивает прокси.
 

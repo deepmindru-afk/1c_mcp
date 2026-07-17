@@ -53,7 +53,7 @@ def create_parser() -> argparse.ArgumentParser:
   MCP_ONEC_URL           - URL базы 1С (обязательно при transport=http)
   MCP_ONEC_USERNAME      - Имя пользователя 1С (обязательно при transport=http и auth_mode=none)
   MCP_ONEC_PASSWORD      - Пароль пользователя 1С (обязательно при transport=http и auth_mode=none)
-  MCP_FILE_EXCHANGE_DIR  - Папка обмена для transport=file (обязательно при transport=file)
+  MCP_FILE_EXCHANGE_DIR  - Папка обмена для transport=file: путь или ftp://user:pass@host/путь (обязательно при transport=file)
   MCP_HTTPPOLL_HOST      - Адрес httppoll-листенера (по умолчанию: 127.0.0.1)
   MCP_HTTPPOLL_PORT      - Порт httppoll-листенера (по умолчанию: 9090)
   MCP_HTTPPOLL_TIMEOUT   - Таймаут ожидания ответа агента 1С, сек (по умолчанию: 60)

@@ -5,7 +5,7 @@ from .mcp_server import MCPProxy
 from .http_server import run_http_server
 from .stdio_server import run_stdio_server
 from .onec_client import OneCClient, create_onec_client
-from .transport import Transport, HttpTransport, FileTransport, ReverseHttpTransport
+from .transport import Transport, HttpTransport, FileTransport, FtpFileTransport, ReverseHttpTransport
 
 __version__ = "1.0.0"
 
@@ -20,5 +20,6 @@ __all__ = [
 	"Transport",
 	"HttpTransport",
 	"FileTransport",
+	"FtpFileTransport",
 	"ReverseHttpTransport",
 ]

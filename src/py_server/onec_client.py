@@ -13,7 +13,7 @@ from mcp import types
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 import base64
 
-from .transport import Transport, HttpTransport, FileTransport, ReverseHttpTransport
+from .transport import Transport, HttpTransport, FileTransport, FtpFileTransport, ReverseHttpTransport
 
 if TYPE_CHECKING:
     from .config import Config
@@ -319,11 +319,24 @@ def create_onec_client(config: "Config", username: Optional[str], password: Opti
     elif transport_kind == "file":
         if not config.file_exchange_dir:
             raise ValueError("transport=file требует MCP_FILE_EXCHANGE_DIR (папка обмена)")
-        transport = FileTransport(
-            exchange_dir=config.file_exchange_dir,
-            poll_interval=config.file_poll_interval,
-            timeout=config.file_timeout,
-        )
+        exchange = config.file_exchange_dir.strip()
+        if exchange.lower().startswith("ftps://"):
+            raise ValueError("FTPS не поддерживается — укажите ftp:// (агент 1С тоже работает без шифрования)")
+        if exchange.lower().startswith("ftp://"):
+            # Папка обмена на FTP-сервере (например, на третьей машине).
+            # Интервал опроса по умолчанию реже, чем для локальной папки:
+            # каждый опрос — LIST-команда к удалённому серверу.
+            transport = FtpFileTransport(
+                url=exchange,
+                poll_interval=config.file_poll_interval if config.file_poll_interval is not None else 1.0,
+                timeout=config.file_timeout,
+            )
+        else:
+            transport = FileTransport(
+                exchange_dir=exchange,
+                poll_interval=config.file_poll_interval if config.file_poll_interval is not None else 0.2,
+                timeout=config.file_timeout,
+            )
     elif transport_kind == "httppoll":
         transport = ReverseHttpTransport(
             host=config.httppoll_host,
