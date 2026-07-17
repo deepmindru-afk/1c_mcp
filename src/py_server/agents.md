@@ -142,7 +142,7 @@ class Config(BaseSettings):
 	
 	# MCP
 	server_name: str = "1C Configuration Data Tools"
-	server_version: str = "1.0.0"
+	server_version: str = "1.1.0"
 	
 	# Логирование
 	log_level: str = "INFO"

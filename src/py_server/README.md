@@ -231,7 +231,7 @@ MCP_PUBLIC_URL=http://your-server:8000
 | Переменная | Описание | По умолчанию | Обязательная |
 |------------|----------|--------------|--------------|
 | `MCP_SERVER_NAME` | Имя сервера | `1C Configuration Data Tools` | ❌ |
-| `MCP_SERVER_VERSION` | Версия | `1.0.0` | ❌ |
+| `MCP_SERVER_VERSION` | Версия | `1.1.0` | ❌ |
 | `MCP_LOG_LEVEL` | Уровень логирования | `INFO` | ❌ |
 
 Допустимые уровни: `DEBUG`, `INFO`, `WARNING`, `ERROR`
