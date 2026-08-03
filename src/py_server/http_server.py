@@ -60,25 +60,11 @@ class OAuth2BearerMiddleware(BaseHTTPMiddleware):
 		
 		token = auth_header[7:]  # Убираем "Bearer "
 		
-		# Валидируем токен (поддерживаем два формата)
-		creds = None
-		
-		# 1. Простой формат: simple_base64(username:password)
-		if token.startswith("simple_"):
-			try:
-				import base64
-				creds_string = base64.b64decode(token[7:]).decode()
-				username, password = creds_string.split(":", 1)
-				creds = (username, password)
-				logger.debug(f"Простой токен валидирован для пользователя: {username}")
-			except Exception as e:
-				logger.warning(f"Ошибка декодирования простого токена: {e}")
-				creds = None
-		
-		# 2. OAuth2 формат: через хранилище
-		if not creds:
-			creds = self.oauth2_service.validate_access_token(token)
-		
+		# Валидируем токен только через хранилище OAuth2.
+		# Самодостаточные токены вида simple_base64(login:password) больше не принимаются:
+		# они не отзываются при логауте и переживают перезапуск прокси.
+		creds = self.oauth2_service.validate_access_token(token)
+
 		if not creds:
 			return JSONResponse(
 				status_code=401,
@@ -364,13 +350,14 @@ class MCPHttpServer:
 				# Используем существующий клиент сессии, если есть, иначе создаём временный
 				if hasattr(self.mcp_proxy, 'onec_client') and self.mcp_proxy.onec_client:
 					await self.mcp_proxy.onec_client.check_health()
-				elif self.config.onec_username and self.config.onec_password:
+				elif self.config.onec_username is not None:
+					# Пароль может быть пустым — в 1С он не всегда задан
 					# Нет активной сессии — проверяем 1С напрямую через временный клиент
 					from .onec_client import create_onec_client
 					temp_client = create_onec_client(
 						self.config,
 						self.config.onec_username,
-						self.config.onec_password,
+						self.config.onec_password or "",
 					)
 					try:
 						await temp_client.check_health()
@@ -473,10 +460,10 @@ class MCPHttpServer:
 				"authorization_endpoint": f"{base_url}/authorize",
 				"token_endpoint": f"{base_url}/token",
 				"registration_endpoint": f"{base_url}/register",  # Добавляем registration endpoint
+				"revocation_endpoint": f"{base_url}/revoke",  # Отзыв токенов при логауте (RFC 7009)
 				"grant_types_supported": [
 					"authorization_code",
-					"refresh_token",
-					"password"  # Добавляем Password Grant для простоты
+					"refresh_token"
 				],
 				"response_types_supported": ["code"],
 				"code_challenge_methods_supported": ["S256"],
@@ -507,7 +494,7 @@ class MCPHttpServer:
 				"client_id": "mcp-public-client",
 				"client_secret": "",  # Пустой для публичного клиента
 				"client_id_issued_at": 1640000000,  # Фиксированная дата
-				"grant_types": ["authorization_code", "refresh_token", "password"],
+				"grant_types": ["authorization_code", "refresh_token"],
 				"response_types": ["code"],
 				"redirect_uris": redirect_uris,
 				"token_endpoint_auth_method": "none",  # Публичный клиент
@@ -578,6 +565,7 @@ class MCPHttpServer:
 					button {{ margin-top: 20px; padding: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }}
 					button:hover {{ background: #0056b3; }}
 					.error {{ color: red; margin-top: 10px; }}
+					.hint {{ color: #888; font-size: 12px; margin-top: 4px; }}
 				</style>
 			</head>
 			<body>
@@ -588,8 +576,9 @@ class MCPHttpServer:
 					<input type="text" id="username" name="username" required autofocus>
 					
 					<label for="password">Пароль:</label>
-					<input type="password" id="password" name="password" required>
-					
+					<input type="password" id="password" name="password">
+					<span class="hint">Оставьте пустым, если пароль в 1С не задан</span>
+
 					<button type="submit">Войти</button>
 				</form>
 			</body>
@@ -601,7 +590,8 @@ class MCPHttpServer:
 		async def authorize_post(
 			request: Request,
 			username: str = Form(...),
-			password: str = Form(...),
+			# Пароль необязателен: в 1С он может быть не задан
+			password: str = Form(""),
 			redirect_uri: str = None,
 			state: str = None,
 			code_challenge: str = None
@@ -708,6 +698,26 @@ class MCPHttpServer:
 			logger.info(f"Authorization code выдан для пользователя {username}, redirect: {redirect_uri}")
 			return RedirectResponse(url=redirect_url, status_code=302)
 		
+		@self.app.post("/revoke")
+		async def revoke_endpoint(
+			token: str = Form(None),
+			token_type_hint: str = Form(None)
+		):
+			"""Token Revocation (RFC 7009) — логаут клиента.
+
+			Клиент присылает access либо refresh token; отзываем его вместе с парным.
+			По стандарту ответ всегда 200, даже если токен неизвестен.
+			"""
+			if not token:
+				return JSONResponse(
+					status_code=400,
+					content={"error": "invalid_request", "error_description": "Missing token"}
+				)
+
+			revoked = self.oauth2_service.revoke_token(token)
+			logger.info(f"Запрос отзыва токена (hint={token_type_hint}): {'отозван' if revoked else 'неизвестен серверу'}")
+			return JSONResponse(status_code=200, content={})
+
 		@self.app.post("/token")
 		async def token_endpoint(
 			request: Request,
@@ -716,69 +726,17 @@ class MCPHttpServer:
 			redirect_uri: str = Form(None),
 			code_verifier: str = Form(None),
 			refresh_token: str = Form(None),
-			username: str = Form(None),
-			password: str = Form(None)
 		):
-			"""Token endpoint для обмена code на токены, refresh или password grant."""
-			
-			# Password Grant - самый простой вариант
+			"""Token endpoint для обмена code на токены и обновления по refresh token."""
+
+			# Password grant удалён: он выдавал неотзываемый токен simple_base64(login:password),
+			# который оседал в конфигах клиентов открытым текстом и обходил логаут.
 			if grant_type == "password":
-				if username is None:
-					return JSONResponse(
-						status_code=400,
-						content={"error": "invalid_request", "error_description": "Missing username"}
-					)
+				return JSONResponse(
+					status_code=400,
+					content={"error": "unsupported_grant_type", "error_description": "Password grant is not supported, use authorization_code"}
+				)
 
-				# Валидация креденшилов через 1С
-				try:
-					async with httpx.AsyncClient(timeout=10.0) as client:
-						health_url = f"{self.config.onec_url}/hs/{self.config.onec_service_root}/health"
-						uc_params = {"uc": self.config.onec_unlock_code} if self.config.onec_unlock_code else None
-						response = await client.get(
-							health_url,
-							auth=httpx.BasicAuth(username, password or ""),
-							params=uc_params
-						)
-
-						if response.status_code == 401:
-							return JSONResponse(
-								status_code=400,
-								content={"error": "invalid_grant", "error_description": "Invalid username or password"}
-							)
-
-						if response.status_code == 403:
-							return JSONResponse(
-								status_code=403,
-								content={"error": "insufficient_scope", "error_description": f"User '{username}' does not have permissions for MCP HTTP service. Contact 1C administrator to assign the required role."}
-							)
-
-						if response.status_code != 200:
-							logger.warning(f"1C returned status {response.status_code} during credential check for user {username}")
-							return JSONResponse(
-								status_code=502,
-								content={"error": "server_error", "error_description": f"1C returned unexpected status {response.status_code}"}
-							)
-				except Exception as e:
-					logger.error(f"Ошибка проверки креденшилов 1С для password grant: {e}")
-					return JSONResponse(
-						status_code=503,
-						content={"error": "server_error", "error_description": "Unable to validate credentials"}
-					)
-				
-				# Генерируем простой токен (base64 от username:password с префиксом)
-				import base64
-				creds_string = f"{username}:{password}"
-				simple_token = "simple_" + base64.b64encode(creds_string.encode()).decode()
-				
-				logger.info(f"Password grant выдан для пользователя {username}")
-				
-				return {
-					"access_token": simple_token,
-					"token_type": "Bearer",
-					"expires_in": 86400,  # 24 часа (для простоты)
-					"scope": "mcp"
-				}
-			
 			# Authorization Code Grant
 			if grant_type == "authorization_code":
 				# Обмен code на токены

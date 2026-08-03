@@ -29,6 +29,8 @@ class AccessTokenData:
 	login: str
 	password: str
 	exp: datetime
+	# Парный refresh token — чтобы отозвать оба разом (RFC 7009)
+	paired_refresh: Optional[str] = None
 
 
 @dataclass
@@ -38,6 +40,8 @@ class RefreshTokenData:
 	password: str
 	exp: datetime
 	rotation_counter: int = 0
+	# Парный access token — чтобы отозвать оба разом (RFC 7009)
+	paired_access: Optional[str] = None
 
 
 class OAuth2Store:
@@ -141,6 +145,34 @@ class OAuth2Store:
 			logger.debug(f"Refresh token истёк: {token[:16]}...")
 			return None
 		return data
+
+	def revoke(self, token: str) -> bool:
+		"""Отозвать токен и парный к нему (RFC 7009).
+
+		Клиент при логауте присылает один токен — access либо refresh.
+		Удаляем оба, иначе по оставшемуся refresh клиент молча выпустит новый access.
+
+		Args:
+			token: Отзываемый токен
+
+		Returns:
+			True если токен был известен
+		"""
+		found = False
+
+		access_data = self.access_tokens.pop(token, None)
+		if access_data:
+			found = True
+			if access_data.paired_refresh:
+				self.refresh_tokens.pop(access_data.paired_refresh, None)
+
+		refresh_data = self.refresh_tokens.pop(token, None)
+		if refresh_data:
+			found = True
+			if refresh_data.paired_access:
+				self.access_tokens.pop(refresh_data.paired_access, None)
+
+		return found
 
 
 class OAuth2Service:
@@ -257,14 +289,16 @@ class OAuth2Service:
 		self.store.save_access_token(access_token, AccessTokenData(
 			login=code_data.login,
 			password=code_data.password,
-			exp=access_exp
+			exp=access_exp,
+			paired_refresh=refresh_token
 		))
-		
+
 		self.store.save_refresh_token(refresh_token, RefreshTokenData(
 			login=code_data.login,
 			password=code_data.password,
 			exp=refresh_exp,
-			rotation_counter=0
+			rotation_counter=0,
+			paired_access=access_token
 		))
 		
 		logger.debug(f"Выданы токены для пользователя {code_data.login}")
@@ -292,22 +326,42 @@ class OAuth2Service:
 		access_exp = datetime.now() + timedelta(seconds=self.access_ttl)
 		refresh_exp = datetime.now() + timedelta(seconds=self.refresh_ttl)
 		
+		# Старый access, выданный вместе с отработавшим refresh, больше не нужен
+		if refresh_data.paired_access:
+			self.store.access_tokens.pop(refresh_data.paired_access, None)
+
 		self.store.save_access_token(new_access_token, AccessTokenData(
 			login=refresh_data.login,
 			password=refresh_data.password,
-			exp=access_exp
+			exp=access_exp,
+			paired_refresh=new_refresh_token
 		))
-		
+
 		self.store.save_refresh_token(new_refresh_token, RefreshTokenData(
 			login=refresh_data.login,
 			password=refresh_data.password,
 			exp=refresh_exp,
-			rotation_counter=refresh_data.rotation_counter + 1
+			rotation_counter=refresh_data.rotation_counter + 1,
+			paired_access=new_access_token
 		))
 		
 		logger.debug(f"Обновлены токены для пользователя {refresh_data.login} (rotation #{refresh_data.rotation_counter + 1})")
 		return (new_access_token, "Bearer", self.access_ttl, new_refresh_token)
 	
+	def revoke_token(self, token: str) -> bool:
+		"""Отозвать токен (RFC 7009) — используется клиентом при логауте.
+
+		Args:
+			token: Access или refresh token
+
+		Returns:
+			True если токен был известен серверу
+		"""
+		revoked = self.store.revoke(token)
+		if revoked:
+			logger.debug("Токен отозван вместе с парным")
+		return revoked
+
 	def validate_access_token(self, token: str) -> Optional[Tuple[str, str]]:
 		"""Валидировать access token и получить креды 1С.
 		
