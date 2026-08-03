@@ -565,7 +565,6 @@ class MCPHttpServer:
 					button {{ margin-top: 20px; padding: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }}
 					button:hover {{ background: #0056b3; }}
 					.error {{ color: red; margin-top: 10px; }}
-					.hint {{ color: #888; font-size: 12px; margin-top: 4px; }}
 				</style>
 			</head>
 			<body>
@@ -577,7 +576,6 @@ class MCPHttpServer:
 					
 					<label for="password">Пароль:</label>
 					<input type="password" id="password" name="password">
-					<span class="hint">Оставьте пустым, если пароль в 1С не задан</span>
 
 					<button type="submit">Войти</button>
 				</form>
