@@ -320,9 +320,9 @@ class OAuth2BearerMiddleware(BaseHTTPMiddleware):
 1. Если `auth_mode != "oauth2"` → пропустить авторизацию
 2. Проверить, защищён ли путь (`/mcp/`, `/sse`)
 3. Извлечь `Authorization: Bearer <token>`
-4. Валидировать токен (два формата):
-   - **Простой формат:** `simple_base64(username:password)` - для Password Grant
-   - **OAuth2 формат:** через `oauth2_service.validate_access_token()`
+4. Валидировать токен через `oauth2_service.validate_access_token()` — только по хранилищу OAuth2.
+   Самодостаточные токены вида `simple_base64(username:password)` **не принимаются**: они не отзываются
+   при логауте и переживают перезапуск прокси (удалены вместе с password grant)
 5. Установить креденшилы: `current_onec_credentials.set((login, password))`
 6. Делегировать запрос дальше
 
@@ -396,9 +396,12 @@ class MCPHttpServer:
    
    - **Token endpoint:**
      - `POST /token` с `grant_type`:
-       - `password` → простой токен `simple_base64(username:password)`
        - `authorization_code` → PKCE валидация, выдача access/refresh
-       - `refresh_token` → ротация refresh токена
+       - `refresh_token` → ротация refresh токена (старый access при этом удаляется)
+       - `password` → удалён, отвечает 400 `unsupported_grant_type`
+
+   - **Revocation endpoint (RFC 7009):**
+     - `POST /revoke` с `token` (access либо refresh) → отзывает его вместе с парным, всегда 200
 
 7. `async start()`
    - Запуск uvicorn сервера
@@ -803,7 +806,7 @@ Tuple[str, str]  # (username, password) в current_onec_credentials
 └─────────────┘
 ```
 
-### 4. HTTP режим с OAuth2 (Password Grant)
+### 4. HTTP режим с OAuth2 (Authorization Code + PKCE)
 
 ```
 ┌─────────────┐
@@ -811,14 +814,16 @@ Tuple[str, str]  # (username, password) в current_onec_credentials
 └──────┬──────┘
        │ 1. POST /mcp/ → 401
        │ 2. Discovery...
-       │ 3. POST /token (grant_type=password, username, password)
-       │    ├─→ Проверка через 1С health
-       │    └─→ simple_base64(username:password) токен
-       │ 4. POST /mcp/ (Bearer token)
+       │ 3. GET /authorize → форма логина → POST /authorize
+       │    ├─→ Проверка креденшилов через 1С health
+       │    └─→ authorization code (PKCE)
+       │ 4. POST /token (grant_type=authorization_code) → access + refresh
+       │ 5. POST /mcp/ (Bearer token)
+       │ 6. Логаут: POST /revoke → отзыв пары токенов
 ┌──────▼──────┐
 │ http_server │
 │ OAuth2      │
-│ Middleware  │ Декодирует simple_* токен → (username,password)
+│ Middleware  │ Ищет токен в OAuth2Store → (username,password)
 │             │ Устанавливает current_onec_credentials
 │ MCPProxy    │ Читает context var → создаёт OneCClient
 │ OneCClient  │ Basic Auth (username:password из токена!)
@@ -1001,11 +1006,11 @@ creds = current_onec_credentials.get()
 
 ### 3. OAuth2 токены
 
-Два формата:
-- `simple_*` - декодируется как base64, содержит `username:password`
-- Обычные - проверяются через `OAuth2Store`
+Формат один: непрозрачный токен, который проверяется через `OAuth2Store`. Access и refresh выдаются
+парой и отзываются вместе (`POST /revoke`), при ротации refresh старый access удаляется.
 
-Middleware должен поддерживать оба!
+**Не возвращать самодостаточные токены** вида `simple_base64(username:password)`: такой токен нельзя
+отозвать, он переживает перезапуск прокси и оседает в конфигах клиентов открытым текстом.
 
 ### 4. Логирование
 

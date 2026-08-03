@@ -179,8 +179,9 @@ MCP_PUBLIC_URL=http://your-server:8000
 - `MCP_ONEC_USERNAME` и `MCP_ONEC_PASSWORD` не используются (если заданы, будут проигнорированы)
 
 **Поддерживаемые OAuth2 flows:**
-- **Password Grant** - передача username/password напрямую
 - **Authorization Code + PKCE** - авторизация через HTML-форму
+- **Refresh Token** - обновление с ротацией
+- **Token Revocation (RFC 7009)** - отзыв токенов при логауте
 - **Dynamic Client Registration** - автоматическая регистрация клиентов
 
 **Дополнительные endpoints (для OAuth2):**
@@ -342,27 +343,20 @@ curl http://localhost:8000/health
 curl http://localhost:8000/info
 ```
 
-### OAuth2: Password Grant (упрощённый)
+### OAuth2: отзыв токена (логаут)
+
+Клиент отзывает токен через `POST /revoke` (RFC 7009) — эндпоинт объявлен в
+`/.well-known/oauth-authorization-server`. Access и refresh отзываются парой: достаточно прислать любой из них.
 
 ```bash
-# 1. Получить токен
-curl -X POST http://localhost:8000/token \
-  -d "grant_type=password" \
-  -d "username=admin" \
-  -d "password=secret"
-
-# Ответ:
-# {
-#   "access_token": "simple_...",
-#   "token_type": "Bearer",
-#   "expires_in": 86400,
-#   "scope": "mcp"
-# }
-
-# 2. Использовать токен для доступа
-curl http://localhost:8000/mcp/ \
-  -H "Authorization: Bearer <access_token>"
+curl -X POST http://localhost:8000/revoke -d "token=<access_или_refresh>"
+# → 200 {}
 ```
+
+> **Password grant удалён.** Раньше `POST /token` с `grant_type=password` выдавал самодостаточный токен
+> `simple_base64(username:password)`. Такой токен невозможно отозвать, он переживает перезапуск прокси
+> и хранит логин с паролем в конфиге клиента открытым текстом. Сейчас этот грант отвечает 400
+> `unsupported_grant_type`, а токены `simple_*` не принимаются. Используйте `authorization_code` с PKCE.
 
 ### OAuth2: Authorization Code + PKCE (стандартный)
 
